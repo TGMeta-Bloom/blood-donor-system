@@ -67,11 +67,6 @@ function evaluateSessionClearance() {
     }
 }
 
-function handleLogout() {
-    sessionStorage.removeItem("activeUser");
-    evaluateSessionClearance();
-}
-
 // ============================================================================
 // 🖥️ PHASE 2: SPA PORTAL ROUTING VIEW CHANGE INTERCEPTORS
 // ============================================================================
@@ -83,6 +78,11 @@ function switchView(targetViewId) {
     const shortId = targetViewId.replace("view-", "");
     const activeNav = document.getElementById(`nav-${shortId}`);
     if (activeNav) activeNav.classList.add("bg-slate-900", "text-white");
+}
+
+function handleLogout() {
+    sessionStorage.removeItem("activeUser");
+    evaluateSessionClearance();
 }
 
 // ============================================================================
@@ -131,11 +131,10 @@ function handleWebDonorRegistration(event) {
 function handleWebEmergencyRequest(event) {
     event.preventDefault();
     const id = document.getElementById("em-id").value.trim();
-    const hospital = document.getElementById("em-hospital").value.trim(); // Captures the text box entry
+    const hospital = document.getElementById("em-hospital").value.trim();
     const blood = document.getElementById("em-blood").value;
     const urgency = document.getElementById("em-urgency").value;
 
-    // Encodes and adds the hospital value to the network submission string
     const urlEncodedBody = `id=${encodeURIComponent(id)}&hospital=${encodeURIComponent(hospital)}&blood=${encodeURIComponent(blood)}&urgency=${encodeURIComponent(urgency)}`;
 
     fetch('http://localhost:8080/api/createRequest', {
@@ -155,17 +154,23 @@ function handleWebEmergencyRequest(event) {
     .catch(() => alert("Network transaction refused. Verify server status."));
 }
 
-
 // ============================================================================
 // 🎨 PHASE 4: DATA HYDRATION & ANALYTICS CALCULATION LOOP
 // ============================================================================
 function initializeLocalDLLSeeds() {
     if (!globalDatasetCache) return;
+    const seedDates = {
+        "D101": "2026-02-10",
+        "D102": "2026-01-15",
+        "D103": "2026-05-20"
+    };
+
     globalDatasetCache.donors.forEach(d => {
         if (!clientSideDLLHistoryCache[d.id]) {
+            let lastDate = seedDates[d.id] || "2026-01-01";
             clientSideDLLHistoryCache[d.id] = [
-                { date: "2025-01-15", hospital: "National Blood Center Sri Lanka" },
-                { date: "2025-06-20", hospital: "Colombo General Base Hospital" }
+                { date: "2025-05-15", hospital: "National Blood Center Sri Lanka" },
+                { date: lastDate, hospital: "Colombo General Base Hospital" }
             ];
         }
     });
@@ -177,9 +182,7 @@ function hydrateInterfacePanels() {
     // 1. Core Analytics Summary Counter Widgets
     document.getElementById("dash-total").innerText = globalDatasetCache.donors.length;
     document.getElementById("dash-emergencies").innerText = globalDatasetCache.emergencies.length;
-    
-    let activeCount = globalDatasetCache.donors.length; 
-    document.getElementById("dash-available").innerText = activeCount;
+    document.getElementById("dash-available").innerText = globalDatasetCache.donors.length;
 
     // 2. Hydrate Interface Tables
     const dashBody = document.querySelector("#dashTable tbody");
@@ -204,24 +207,22 @@ function hydrateInterfacePanels() {
     heapContainer.innerHTML = "";
     if (emergencyListContainer) emergencyListContainer.innerHTML = "";
 
-   globalDatasetCache.emergencies.forEach(e => {
-    let color = e.urgency === "CRITICAL" ? "bg-rose-50 text-rose-900 border-rose-500" : (e.urgency === "URGENT" ? "bg-amber-50 text-amber-900 border-amber-500" : "bg-emerald-50 text-emerald-900 border-emerald-500");
-    
-    // Fallback if your back-end doesn't return a hospital parameter string yet
-    let hospitalLabel = e.hospital ? e.hospital : "General Hospital Node";
+    globalDatasetCache.emergencies.forEach(e => {
+        let color = e.urgency === "CRITICAL" ? "bg-rose-50 text-rose-900 border-rose-500" : (e.urgency === "URGENT" ? "bg-amber-50 text-amber-900 border-amber-500" : "bg-emerald-50 text-emerald-900 border-emerald-500");
+        let hospitalLabel = e.hospital ? e.hospital : "General Hospital Node";
 
-    let block = `<div class="p-3 border-l-4 rounded-xl flex justify-between items-center font-semibold text-xs ${color}">
-                    <div>
-                        <span class="font-mono font-bold block">${e.id}</span>
-                        <span class="text-slate-800 font-extrabold block text-[11px]">${hospitalLabel}</span>
-                        <span class="text-slate-400">Target Match: </span><span class="font-bold text-slate-800">${e.blood}</span>
-                    </div>
-                    <span class="text-[9px] px-2 py-0.5 bg-white/70 rounded uppercase font-black">${e.urgency}</span>
-                 </div>`;
-                 
-    heapContainer.innerHTML += block;
-    if (emergencyListContainer) emergencyListContainer.innerHTML += block;
-});
+        let block = `<div class="p-3 border-l-4 rounded-xl flex justify-between items-center font-semibold text-xs ${color}">
+                        <div>
+                            <span class="font-mono font-bold block">${e.id}</span>
+                            <span class="text-slate-800 font-extrabold block text-[11px]">${hospitalLabel}</span>
+                            <span class="text-slate-400">Target Match: </span><span class="font-bold text-slate-800">${e.blood}</span>
+                        </div>
+                        <span class="text-[9px] px-2 py-0.5 bg-white/70 rounded uppercase font-black">${e.urgency}</span>
+                     </div>`;
+                     
+        heapContainer.innerHTML += block;
+        if (emergencyListContainer) emergencyListContainer.innerHTML += block;
+    });
 
     // 4. Hydrate History Logs Select List (DLL)
     const historySelector = document.getElementById("historySelectorContainer");
@@ -230,13 +231,64 @@ function hydrateInterfacePanels() {
         historySelector.innerHTML += `<button onclick="renderChronologicalTimeline('${d.id}', '${d.name}')" class="w-full text-left p-3 rounded-xl border border-slate-100 hover:bg-slate-50 transition font-bold text-xs flex justify-between items-center bg-white shadow-sm"><span>👤 ${d.name}</span><span class="text-[10px] text-slate-400">${d.id}</span></button>`;
     });
 
-    // 5. Compute Dynamic Load Matrix (Satisfies Interactive Charts Rules)
+    // 5. Initialize/Reset Search Autocomplete list state
+    filterEligibilitySearch("");
+
+    // 6. Compute Dynamic Load Matrix
     calculateDynamicReportMetrics();
 }
 
 // ============================================================================
 // 📊 PHASE 5: ADVANCED COMPUTATIONAL ALGORITHMIC EXTENSIONS
 // ============================================================================
+function toggleEligibilityDropdown(show) {
+    const dropdown = document.getElementById("eligibilityCustomDropdown");
+    if (!dropdown) return;
+    if (show) {
+        dropdown.classList.remove("hidden");
+    } else {
+        setTimeout(() => dropdown.classList.add("hidden"), 200);
+    }
+}
+
+function filterEligibilitySearch(query) {
+    if (!globalDatasetCache) return;
+    const container = document.getElementById("eligibilityCustomDropdown");
+    if (!container) return;
+    container.innerHTML = "";
+    
+    const cleanQuery = query.toLowerCase().trim();
+    
+    const matches = globalDatasetCache.donors.filter(d => 
+        d.name.toLowerCase().includes(cleanQuery) || 
+        d.id.toLowerCase().includes(cleanQuery)
+    );
+
+    if (matches.length === 0) {
+        container.innerHTML = `<div class="p-3 text-xs text-slate-400 font-bold text-center">No matching system nodes found</div>`;
+        return;
+    }
+
+    matches.forEach(d => {
+        const item = document.createElement("div");
+        item.className = "p-3 hover:bg-slate-50 cursor-pointer border-b border-slate-100 transition text-xs flex justify-between items-center normal-case";
+        item.innerHTML = `<span>👤 <strong>${d.name}</strong></span> <span class="font-mono text-slate-400 bg-slate-100 px-2 py-0.5 rounded">${d.id}</span>`;
+        
+        item.onclick = function() {
+            document.getElementById("eligibilitySearchInput").value = `${d.name} (${d.id})`;
+            document.getElementById("eligibilityDonorSelect").value = d.id; 
+            
+            const dateInput = document.getElementById("el-date");
+            if (clientSideDLLHistoryCache[d.id]) {
+                let historyArray = clientSideDLLHistoryCache[d.id];
+                dateInput.value = historyArray[historyArray.length - 1].date;
+            }
+            toggleEligibilityDropdown(false);
+        };
+        container.appendChild(item);
+    });
+}
+
 function executeFilterSearch() {
     const targetBlood = document.getElementById("search-blood").value;
     const targetDistrict = document.getElementById("search-district").value;
@@ -269,8 +321,25 @@ function saveNodeEdits() {
 }
 
 function triggerAdminPurge(id) {
-    alert(`Purge execution command sent for AVL Node key: [${id}]. Tree rebalancing algorithm complete. Root node equilibrium balanced.`);
-    syncDashboardData();
+    const urlEncodedBody = `id=${encodeURIComponent(id)}`;
+
+    // Dispatches a real network transaction to execute structural deletion inside the C++ backend AVL tree memory layout
+    fetch('http://localhost:8080/api/purgeDonor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+        body: urlEncodedBody
+    })
+    .then(res => res.json())
+    .then(data => {
+        if (data.status === "success") {
+            // Emits alert trace parameters after back-end completes full height-balanced structural node mutations
+            alert(`Purge execution command sent for AVL Node key: [${id}]. Tree rebalancing algorithm complete. Root node equilibrium balanced.`);
+            syncDashboardData(); 
+        } else {
+            alert("C++ Server failed to structurally purge the target node.");
+        }
+    })
+    .catch(() => alert("Transmission timeout error. Verification failure on backend network link loops."));
 }
 
 function renderChronologicalTimeline(donorId, donorName) {
@@ -311,6 +380,7 @@ function injectNewDLLBlock() {
     clientSideDLLHistoryCache[id].push({ date: date, hospital: hosp });
     alert("Success! Fresh operational block appended onto the Doubly Linked History List sequence chain.");
     renderChronologicalTimeline(id, window.activeHistoryDonorName);
+    syncDashboardData(); 
 }
 
 function purgeDLLNodeBlock(index) {
@@ -318,6 +388,7 @@ function purgeDLLNodeBlock(index) {
     clientSideDLLHistoryCache[id].splice(index, 1);
     alert("Record block purged from history list chain sequence. Linked references re-mapped.");
     renderChronologicalTimeline(id, window.activeHistoryDonorName);
+    syncDashboardData();
 }
 
 function triggerTriagePop() {
@@ -329,7 +400,6 @@ function triggerTriagePop() {
     }
     const topNode = globalDatasetCache.emergencies[0];
     
-    // Cross-reference lookup against the active dynamic AVL donor tree lists
     let matchingDonors = globalDatasetCache.donors.filter(d => d.blood === topNode.blood);
     let matchRows = matchingDonors.map(m => ` -> Node ${m.id} : ${m.name} (${m.district}) Available`).join("<br>");
 
@@ -346,50 +416,86 @@ function triggerTriagePop() {
 }
 
 function calculateEligibility() {
+    const donorId = document.getElementById("eligibilityDonorSelect").value;
+    const searchInput = document.getElementById("eligibilitySearchInput").value;
     const inputDateVal = document.getElementById("el-date").value;
     const resultBox = document.getElementById("eligibilityResult");
     
-    if (!inputDateVal) return alert("Please specify an historical date boundary mark.");
+    if (!donorId) return alert("Please type and select a specific person profile from the predictive list first.");
+    if (!inputDateVal) return alert("Please specify a last allocation checkpoint date.");
     
     resultBox.classList.remove("hidden", "bg-emerald-50", "text-emerald-800", "border-emerald-200", "bg-rose-50", "text-rose-800", "border-rose-200");
 
     const lastDonation = new Date(inputDateVal);
-    const currentDate = new Date("2026-06-05"); // Evaluates precisely using our standard 2026 course anchor point
+    const currentDate = new Date("2026-06-05"); 
     
-    // Calculates the dynamic difference map
     const structureDiffInMonths = (currentDate.getFullYear() - lastDonation.getFullYear()) * 12 + (currentDate.getMonth() - lastDonation.getMonth());
 
     if (structureDiffInMonths < 3) {
         let unlockDate = new Date(lastDonation.setMonth(lastDonation.getMonth() + 3)).toISOString().split('T')[0];
-        resultBox.innerHTML = `⚠️ <strong>INELIGIBLE:</strong> Candidate violates the strict 3-month clinical restoration cool-off constraint sequence rule.<br><span class="text-xs font-semibold uppercase tracking-wider block mt-1">Earliest Eligibility Clearance Checkpoint: ${unlockDate}</span>`;
+        resultBox.innerHTML = `⚠️ <strong>${searchInput} is INELIGIBLE:</strong> Candidate violates the strict 3-month clinical restoration window constraints.<br><span class="text-xs font-semibold uppercase tracking-wider block mt-1">Earliest Clearance Checkpoint: ${unlockDate}</span>`;
         resultBox.classList.add("bg-rose-50", "text-rose-800", "border-rose-200");
     } else {
-        resultBox.innerHTML = `✅ <strong>ELIGIBLE FOR MOBILIZATION:</strong> Interval restoration guidelines cleared. Safe to dispatch structural clinical notification logs.`;
+        resultBox.innerHTML = `✅ <strong>${searchInput} is ELIGIBLE:</strong> Safe to dispatch mobilization. Clinical interval guidelines cleared successfully.`;
         resultBox.classList.add("bg-emerald-50", "text-emerald-800", "border-emerald-200");
     }
 }
 
 function calculateDynamicReportMetrics() {
-    let colombo = 0, gampaha = 0, kandy = 0, galle = 0;
+    if (!globalDatasetCache) return;
+
+    // 1. Initialize Complete Storage Maps for All Blood Group Combinations
+    const bloodCounters = { "A+": 0, "A-": 0, "B+": 0, "B-": 0, "O+": 0, "O-": 0, "AB+": 0, "AB-": 0 };
+    
+    // 2. Initialize Complete Storage Maps for All 25 Districts
+    const districtCounters = {
+        "colombo": 0, "gampaha": 0, "kalutara": 0, "kandy": 0, "matale": 0, "nuwara_eliya": 0, 
+        "galle": 0, "matara": 0, "hambantota": 0, "jaffna": 0, "kilinochchi": 0, "mannar": 0, 
+        "mullaitivu": 0, "vavuniya": 0, "trincomalee": 0, "batticaloa": 0, "ampara": 0, 
+        "kurunegala": 0, "puttalam": 0, "anuradhapura": 0, "polonnaruwa": 0, "badulla": 0, 
+        "monaragala": 0, "ratnapura": 0, "kegalle": 0
+    };
+
+    // 3. Populate Counters from Live Data Cache
     globalDatasetCache.donors.forEach(d => {
-        let dist = d.district.toUpperCase();
-        if (dist.includes("COLOMBO")) colombo++;
-        if (dist.includes("GAMPAHA")) gampaha++;
-        if (dist.includes("KANDY")) kandy++;
-        if (dist.includes("GALLE")) galle++;
+        // Increment blood category
+        if (bloodCounters[d.blood] !== undefined) {
+            bloodCounters[d.blood]++;
+        }
+        
+        // Normalize and increment district map keys
+        let districtKey = d.district.toLowerCase().trim().replace(" ", "_");
+        if (districtCounters[districtKey] !== undefined) {
+            districtCounters[districtKey]++;
+        }
     });
 
-    let maxDist = Math.max(colombo, gampaha, kandy, galle, 1);
-    document.getElementById("an-dist-colombo").innerText = colombo;
-    document.getElementById("an-dist-gampaha").innerText = gampaha;
-    document.getElementById("an-dist-kandy").innerText = kandy;
-    document.getElementById("an-dist-galle").innerText = galle;
+    // 4. Update the Blood Chart Progress Bars Dynamically
+    let maxBloodCount = Math.max(...Object.values(bloodCounters), 1);
+    Object.keys(bloodCounters).forEach(bg => {
+        let elementIdSuffix = bg.replace("+", "_pos").replace("-", "_neg");
+        let count = bloodCounters[bg];
+        
+        let textLabel = document.getElementById(`an-bg-${elementIdSuffix}`);
+        let barWidth = document.getElementById(`an-bar-${elementIdSuffix}`);
+        
+        if (textLabel) textLabel.innerText = count;
+        if (barWidth) barWidth.style.width = `${(count / maxBloodCount) * 100}%`;
+    });
 
-    document.getElementById("an-bar-colombo").style.width = `${(colombo / maxDist) * 100}%`;
-    document.getElementById("an-bar-gampaha").style.width = `${(gampaha / maxDist) * 100}%`;
-    document.getElementById("an-bar-kandy").style.width = `${(kandy / maxDist) * 100}%`;
-    document.getElementById("an-bar-galle").style.width = `${(galle / maxDist) * 100}%`;
+    // 5. Update All 25 District Chart Progress Bars Dynamically
+    let maxDistrictCount = Math.max(...Object.values(districtCounters), 1);
+    Object.keys(districtCounters).forEach(dstKey => {
+        let count = districtCounters[dstKey];
+        
+        let textLabel = document.getElementById(`an-dist-${dstKey}`);
+        let barWidth = document.getElementById(`an-bar-${dstKey}`);
+        
+        if (textLabel) textLabel.innerText = count;
+        if (barWidth) barWidth.style.width = `${(count / maxDistrictCount) * 100}%`;
+    });
 
+    // 6. Update Emergency Max-Heap Urgent Load Bars
     let u3 = 0, u2 = 0, u1 = 0;
     globalDatasetCache.emergencies.forEach(e => {
         if (e.urgency === "CRITICAL") u3++;
@@ -407,5 +513,11 @@ function calculateDynamicReportMetrics() {
     document.getElementById("an-bar-urg1").style.width = `${(u1 / maxUrg) * 100}%`;
 }
 
-// Global initialization call on interface ready state
+// Global window event listener tracking to close picker boxes on outside click actions
+document.addEventListener("click", function(e) {
+    if (!e.target.closest("#eligibilitySearchInput") && !e.target.closest("#eligibilityCustomDropdown")) {
+        toggleEligibilityDropdown(false);
+    }
+});
+
 window.onload = evaluateSessionClearance;

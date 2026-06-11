@@ -74,13 +74,80 @@ private:
         return node;
     }
 
+    // Finds the node with the smallest key value in a given subtree (Inorder Successor)
+    AVLNode* minValueNode(AVLNode* node) {
+        AVLNode* current = node;
+        while (current && current->left != nullptr)
+            current = current->left;
+        return current;
+    }
+
+    // Recursive helper to execute deletions and handle AVL tree height violations
+    AVLNode* deleteNode(AVLNode* root, std::string id) {
+        if (!root) return root;
+
+        // 1. Perform standard BST deletion steps
+        if (id < root->donor.id) {
+            root->left = deleteNode(root->left, id);
+        } else if (id > root->donor.id) {
+            root->right = deleteNode(root->right, id);
+        } else {
+            // Node matches the target deletion key ID!
+            if ((root->left == nullptr) || (root->right == nullptr)) {
+                AVLNode* temp = root->left ? root->left : root->right;
+
+                if (!temp) {
+                    temp = root;
+                    root = nullptr;
+                } else {
+                    *root = *temp; // Copy contents of non-empty child node
+                }
+                delete temp;
+            } else {
+                // Node has two active children: get the inorder successor
+                AVLNode* temp = minValueNode(root->right);
+                root->donor = temp->donor; // Pull metadata up into current position
+                root->right = deleteNode(root->right, temp->donor.id); // Delete successor node
+            }
+        }
+
+        if (!root) return root;
+
+        // 2. Update height values for the current node block
+        root->height = 1 + std::max(height(root->left), height(root->right));
+
+        // 3. Inspect balance factors to check for height constraint breaches
+        int balance = getBalance(root);
+
+        // Case 1: Left Left (LL Rotation)
+        if (balance > 1 && getBalance(root->left) >= 0)
+            return rightRotate(root);
+
+        // Case 2: Left Right (LR Rotation)
+        if (balance > 1 && getBalance(root->left) < 0) {
+            root->left = leftRotate(root->left);
+            return rightRotate(root);
+        }
+
+        // Case 3: Right Right (RR Rotation)
+        if (balance < -1 && getBalance(root->right) <= 0)
+            return leftRotate(root);
+
+        // Case 4: Right Left (RL Rotation)
+        if (balance < -1 && getBalance(root->right) > 0) {
+            root->right = rightRotate(root->right);
+            return leftRotate(root);
+        }
+
+        return root;
+    }
+
     AVLNode* searchNode(AVLNode* node, std::string id) {
         if (!node || node->donor.id == id) return node;
         if (id < node->donor.id) return searchNode(node->left, id);
         return searchNode(node->right, id);
     }
 
-    // Inorder Traversal execution to gather records for filtering
     void collectInorder(AVLNode* node, std::vector<Donor>& list) {
         if (!node) return;
         collectInorder(node->left, list);
@@ -93,13 +160,15 @@ public:
 
     void insert(Donor d) { root = insertNode(root, d); }
 
+    // Public exposure member to trigger node deletions cleanly from main.cpp
+    void remove(std::string id) { root = deleteNode(root, id); }
+
     Donor search(std::string id) {
         AVLNode* res = searchNode(root, id);
         if (res) return res->donor;
         return {"", "", "", "", "", false};
     }
 
-    // Dynamic filtering array generation (Crucial for Viva Safety)
     std::vector<Donor> filterDonors(std::string blood, std::string dist) {
         std::vector<Donor> allDonors;
         std::vector<Donor> filtered;
